@@ -1,5 +1,5 @@
 FROM sammax23/rcmltb
-EXPOSE 80
+EXPOSE 8080
 
 WORKDIR /usr/src/app
 RUN chmod 777 /usr/src/app
