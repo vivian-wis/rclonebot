@@ -5,9 +5,9 @@ from random import SystemRandom
 from os import path as ospath, remove as osremove, walk
 from string import ascii_letters, digits
 from bot import GLOBAL_EXTENSION_FILTER, LOGGER, status_dict, status_dict_lock, remotes_multi, config_dict
-from bot.helper.ext_utils.filters import CustomFilters
+from bot.helper.telegram_helper.filters import CustomFilters
 from bot.helper.ext_utils.human_format import get_readable_file_size
-from bot.helper.ext_utils.message_utils import sendStatusMessage
+from bot.helper.telegram_helper.message_utils import sendStatusMessage
 from bot.helper.ext_utils.misc_utils import clean_download
 from bot.helper.ext_utils.rclone_data_holder import get_rclone_data
 from bot.helper.ext_utils.rclone_utils import get_rclone_path, setRcloneFlags
@@ -24,7 +24,7 @@ class RcloneMirror:
         self.name= name
         self.size= size
         self.process= None
-        self.__isGdrive= False
+        self.__is_gdrive= False
         self.__is_cancelled = False
         self.status_type = MirrorStatus.STATUS_UPLOADING
 
@@ -53,8 +53,8 @@ class RcloneMirror:
                         await self.upload(cmd, config_file, mime_type, remote)
                     await clean_download(self.__path)
             else:
-                remote = get_rclone_data('CLOUD_SELECT_REMOTE', self.__user_id)
-                base = get_rclone_data('CLOUD_SELECT_BASE_DIR', self.__user_id)
+                remote = get_rclone_data('MIRROR_SELECT_REMOTE', self.__user_id)
+                base = get_rclone_data('MIRROR_SELECT_BASE_DIR', self.__user_id)
                 await self.check_isGdrive(remote, config_file)
 
                 if mime_type == 'Folder':
@@ -74,7 +74,8 @@ class RcloneMirror:
                 await setRcloneFlags(cmd, "upload")
                 await self.upload(cmd, config_file, mime_type, DEFAULT_GLOBAL_REMOTE)
             else:
-                return await self.__listener.onUploadError("DEFAULT_GLOBAL_REMOTE not found")
+                await self.__listener.onUploadError("DEFAULT_GLOBAL_REMOTE not found")
+                return
         
     async def upload(self, cmd, config_file, mime_type, remote, base="/"):
         gid = ''.join(SystemRandom().choices(ascii_letters + digits, k=10))
@@ -83,13 +84,13 @@ class RcloneMirror:
             status_dict[self.__listener.uid] = status
         await sendStatusMessage(self.__listener.message)
         self.process = await create_subprocess_exec(*cmd, stdout=PIPE, stderr=PIPE)
-        await status.read_stdout()
+        await status._progress()
         return_code = await self.process.wait()
         if self.__is_cancelled:
             return
         if return_code == 0:
             size = get_readable_file_size(self.size)
-            await self.__listener.onRcloneUploadComplete(self.name, size, config_file, remote, base, mime_type, self.__isGdrive)
+            await self.__listener.onRcloneUploadComplete(self.name, size, config_file, remote, base, mime_type, self.__is_gdrive)
         else:
             error= await self.process.stderr.read()
             await self.__listener.onUploadError(f"Error: {error}!")
@@ -110,9 +111,9 @@ class RcloneMirror:
         for r in conf.sections():
             if str(r) == remote:
                 if conf[r]['type'] == 'drive':
-                    self.__isGdrive = True
+                    self.__is_gdrive = True
                 else:
-                    self.__isGdrive = False
+                    self.__is_gdrive = False
                 
     async def cancel_download(self):
         self.__is_cancelled = True

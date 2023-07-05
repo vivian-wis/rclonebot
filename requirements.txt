@@ -1,7 +1,7 @@
 aiohttp
 aiofiles
 aioshutil
-anytree
+anytree==2.8.0
 apscheduler
 aria2p
 asyncio
@@ -10,7 +10,8 @@ beautifulsoup4
 cfscrape
 dnspython
 feedparser
-flask==2.0.3
+flask
+gevent
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
@@ -35,4 +36,5 @@ tgCrypto
 uvloop
 xattr
 yt-dlp
+tmdbv3api
 

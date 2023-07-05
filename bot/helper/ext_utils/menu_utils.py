@@ -10,30 +10,32 @@ class Menus:
     STORAGE= 'storagemenu'
     CLEANUP= 'cleanupmenu'
     SYNC= 'syncmenu'
-    MIRRORSELECT= 'mirrorselectmenu'
-    CLOUDSELECT= "cloudselectmenu" 
+    REMOTE_SELECT= "remoteselectmenu" 
+    MIRROR_SELECT= 'mirrorselectmenu'
+  
 
-def rcloneListNextPage(list_info, offset= 0, max_results=10):
+def rcloneListNextPage(info, offset=0, max_results=10):
     start = offset
     end = max_results + start
+    total= len(info)
     next_offset = offset + max_results
 
-    if end > len(list_info):
-        next_list_info = list_info[offset:]    
-    elif offset >= len(list_info):
-        next_list_info= []    
+    if end > total:
+        next_page = info[start:]    
+    elif start >= total:
+        next_page= []    
     else:
-        next_list_info= list_info[start:end]  
+        next_page= info[start:end]  
 
-    return next_list_info, next_offset
+    return next_page, next_offset
 
-def rcloneListButtonMaker(result_list, buttons, menu_type, dir_callback, file_callback, user_id):
-    for index, dir in enumerate(result_list):
+def rcloneListButtonMaker(info, button, menu_type, dir_callback, file_callback, user_id):
+    for index, dir in enumerate(info):
         path = dir["Path"]
         update_rclone_data(str(index), path, user_id)
-        size= get_readable_file_size(dir['Size'])
-
+        
         if dir['MimeType'] == 'inode/directory': 
-            buttons.cb_buildbutton(f"📁{path}", data= f"{menu_type}^{dir_callback}^{index}^{user_id}") 
+            button.cb_buildbutton(f"📁{path}", data=f"{menu_type}^{dir_callback}^{index}^{user_id}") 
         else:
-            buttons.cb_buildbutton(f"[{size}] {path}", data= f"{menu_type}^{file_callback}^{index}^True^{user_id}")
+            size= get_readable_file_size(dir['Size'])
+            button.cb_buildbutton(f"[{size}] {path}", data=f"{menu_type}^{file_callback}^{index}^True^{user_id}")

@@ -1,33 +1,28 @@
 from asyncio import TimeoutError, create_subprocess_exec, create_subprocess_shell
-from subprocess import Popen, run as srun
 from pyrogram.filters import regex, command
 from pyrogram import filters
 from pyrogram.handlers import MessageHandler, CallbackQueryHandler
 from bot import DATABASE_URL, GLOBAL_EXTENSION_FILTER, LOGGER, TG_MAX_FILE_SIZE, bot, Interval, aria2, config_dict, aria2_options, aria2c_global, get_client, qbit_options, status_reply_dict_lock, status_dict, leech_log
-from bot.helper.ext_utils.bot_commands import BotCommands
+from bot.helper.telegram_helper.bot_commands import BotCommands
 from bot.helper.ext_utils.bot_utils import run_sync, setInterval 
 from bot.helper.ext_utils.db_handler import DbManager
-from bot.helper.ext_utils.filters import CustomFilters
-from bot.helper.ext_utils.message_utils import editMarkup, sendFile, sendMarkup, sendMessage, update_all_messages
-from bot.helper.ext_utils.button_build import ButtonMaker
+from bot.helper.telegram_helper.filters import CustomFilters
+from bot.helper.telegram_helper.message_utils import editMarkup, sendFile, sendMarkup, sendMessage, update_all_messages
+from bot.helper.telegram_helper.button_build import ButtonMaker
 from bot.helper.ext_utils.rclone_data_holder import update_rclone_data
+from bot.modules.rss import addJob
 from bot.modules.search import initiate_search_tools
 
 
 START = 0
 STATE = 'view'
-
 default_values = {'AUTO_DELETE_MESSAGE_DURATION': 30,
                   'DOWNLOAD_DIR': '/usr/src/app/downloads/',  
                   'UPSTREAM_BRANCH': 'master',
                   'STATUS_UPDATE_INTERVAL': 10,
                   'LEECH_SPLIT_SIZE': TG_MAX_FILE_SIZE,
                   'SEARCH_LIMIT': 0,
-                  'LOCAL_MIRROR_PORT': 81,
-                  'QB_SERVER_PORT': 80,
-                  'RC_INDEX_PORT': 8080,
                   'RSS_DELAY': 900}
-
 
 
 async def handle_ownerset(client, message):
@@ -52,9 +47,9 @@ def get_env_menu():
     for k in list(config_dict.keys())[START: 10 + START]:
         buttons.cb_buildbutton(k, f"ownersetmenu^env^editenv^{k}")
     if STATE == 'view':
-        buttons.cb_buildbutton('Edit', "ownersetmenu^edit^env")
+        buttons.cb_buildbutton('📝Edit', "ownersetmenu^edit^env")
     else:
-        buttons.cb_buildbutton('View', "ownersetmenu^view^env")
+        buttons.cb_buildbutton('🔍View', "ownersetmenu^view^env")
     buttons.cb_buildbutton("Aria2 Settings", "ownersetmenu^aria^aria_menu")
     buttons.cb_buildbutton("Qbit Setttings", "ownersetmenu^qbit^qbit_menu")
     pages= 0
@@ -73,9 +68,9 @@ def get_qbit_menu():
     for k in list(qbit_options.keys())[START: 10 + START]:
         buttons.cb_buildbutton(k, f"ownersetmenu^qbit^editqbit^{k}")
     if STATE == 'view':
-        buttons.cb_buildbutton('Edit', "ownersetmenu^edit^qbit")
+        buttons.cb_buildbutton('📝Edit', "ownersetmenu^edit^qbit")
     else:
-        buttons.cb_buildbutton('View', "ownersetmenu^view^qbit")
+        buttons.cb_buildbutton('🔍View', "ownersetmenu^view^qbit")
     pages= 0
     for x in range(0, len(qbit_options)-1, 10):
         pages = int(x/10)
@@ -93,9 +88,9 @@ def get_aria_menu():
     for k in list(aria2_options.keys())[START: 10 + START]:
         buttons.cb_buildbutton(k, f"ownersetmenu^aria^editaria^{k}")
     if STATE == 'view':
-        buttons.cb_buildbutton('Edit', "ownersetmenu^edit^aria")
+        buttons.cb_buildbutton('📝Edit', "ownersetmenu^edit^aria")
     else:
-        buttons.cb_buildbutton('View', "ownersetmenu^view^aria")
+        buttons.cb_buildbutton('🔍View', "ownersetmenu^view^aria")
     buttons.cb_buildbutton('Add new key', "ownersetmenu^aria^editaria^newkey")
     pages= 0
     for x in range(0, len(aria2_options)-1, 10):
@@ -139,7 +134,8 @@ async def ownerset_callback(client, callback_query):
 
     if data[1] == "env":
         if data[2] == "editenv" and STATE == 'edit':
-            if data[3] in ['PARALLEL_TASKS', 'SUDO_USERS', 'RC_INDEX_USER', 'RC_INDEX_PASS', 'RC_INDEX_URL', 'RC_INDEX_PORT', 'ALLOWED_CHATS', 'RSS_USER_SESSION_STRING', 'USER_SESSION_STRING', 'AUTO_MIRROR',  'RSS_DELAY', 'CMD_INDEX', 
+            if data[3] in ['PARALLEL_TASKS', 'SUDO_USERS', 'RC_INDEX_USER', 'RC_INDEX_PASS', 'RC_INDEX_URL', 'RC_INDEX_PORT',
+                           'ALLOWED_CHATS', 'USER_SESSION_STRING', 'AUTO_MIRROR',  'RSS_DELAY', 'CMD_INDEX', 
                           'TELEGRAM_API_HASH', 'TELEGRAM_API_ID', 'BOT_TOKEN', 'OWNER_ID', 'DOWNLOAD_DIR', 'DATABASE_URL']:
                 await query.answer(text='Restart required for this to apply!', show_alert=True)
             else:
@@ -168,11 +164,11 @@ async def ownerset_callback(client, callback_query):
                             Interval.clear()
                             Interval.append(setInterval(value, update_all_messages))
             elif data[3] == 'DEFAULT_OWNER_REMOTE':
-                update_rclone_data("CLOUD_SELECT_REMOTE", value, user_id)
-                update_rclone_data("CLOUD_SELECT_BASE_DIR", value, user_id)
+                update_rclone_data("MIRROR_SELECT_REMOTE", value, user_id)
+                update_rclone_data("MIRROR_SELECT_BASE_DIR", value, user_id)
             elif data[3] == 'EXTENSION_FILTER':
                 GLOBAL_EXTENSION_FILTER.clear()
-                GLOBAL_EXTENSION_FILTER.append('.aria2')
+                GLOBAL_EXTENSION_FILTER.extend(['.aria2', '!qB'])
             elif data[3] == 'TORRENT_TIMEOUT':
                 downloads = await run_sync(aria2.get_downloads)
                 for download in downloads:
@@ -184,16 +180,12 @@ async def ownerset_callback(client, callback_query):
                 aria2_options['bt-stop-timeout'] = '0'
                 if DATABASE_URL:
                     await DbManager().update_aria2('bt-stop-timeout', '0')
-            elif data[3] == 'LOCAL_MIRROR_URL':
-                await (await create_subprocess_exec("pkill", "-9", "-f", "gunicorn web.wserver:app")).wait()
             elif data[3] == 'QB_BASE_URL':
-                await (await create_subprocess_exec("pkill", "-9", "-f", "gunicorn qbitweb.wserver:app")).wait()
-            elif data[3] == 'LOCAL_MIRROR_PORT':
-                await (await create_subprocess_exec("pkill", "-9", "-f", f"gunicorn web.wserver:app")).wait()
-                await create_subprocess_shell("gunicorn web.wserver:app --bind 0.0.0.0:81")
+                await (await create_subprocess_exec("pkill", "-9", "-f", "gunicorn")).wait()
             elif data[3] == 'QB_SERVER_PORT':
-                await (await create_subprocess_exec("pkill", "-9", "-f", f"gunicorn qbitweb.wserver:app")).wait()
-                await create_subprocess_shell("gunicorn qbitweb.wserver:app --bind 0.0.0.0:80")
+                if config_dict['BASE_URL']:
+                    await (await create_subprocess_exec("pkill", "-9", "-f", "gunicorn")).wait()
+                    await create_subprocess_shell(f"gunicorn qbitweb.wserver:app --bind 0.0.0.0:80 --worker-class gevent")
             await query.answer("Reseted")    
             config_dict[data[3]] = value
             if DATABASE_URL:
@@ -319,16 +311,15 @@ async def start_env_listener(client, query, user_id, key):
     message= query.message
     question= await sendMessage("Send valid value for selected variable, /ignore to cancel. Timeout: 60 sec", message)
     try:
-        response = await client.listen.Message(filters.text, id= filters.user(user_id), timeout= 60)
+        response = await client.listen.Message(filters.text, id= filters.user(user_id), timeout=60)
     except TimeoutError:
-        await client.send_message(message.chat.id, text="Too late 30s gone, try again!")
+        await client.send_message(message.chat.id, text="Too late 60s gone, try again!")
         return
     else:
         if response:
             try:
                 if "/ignore" in response.text:
                     await client.listen.Cancel(filters.user(user_id))
-                    await query.answer("Cancelled question!")
                 else:
                     value= response.text.strip() 
                     if value.lower() == 'true':
@@ -348,6 +339,14 @@ async def start_env_listener(client, query, user_id, key):
                                 pass
                             finally:
                                 Interval.append(setInterval(value, update_all_messages))
+                    elif key == 'STATUS_UPDATE_INTERVAL':
+                        value = int(value)
+                        if len(status_dict) != 0:
+                            async with status_reply_dict_lock:
+                                if Interval:
+                                    Interval[0].cancel()
+                                    Interval.clear()
+                                    Interval.append(setInterval(value, update_all_messages))
                     elif key == 'TORRENT_TIMEOUT':
                         value = int(value)
                         downloads = await run_sync(aria2.get_downloads)
@@ -359,7 +358,12 @@ async def start_env_listener(client, query, user_id, key):
                                     LOGGER.error(e)
                         aria2_options['bt-stop-timeout'] = f'{value}'
                     elif key == 'DEFAULT_OWNER_REMOTE':
-                        update_rclone_data("CLOUD_SELECT_REMOTE", value, user_id)
+                        update_rclone_data("MIRROR_SELECT_REMOTE", value, user_id)
+                    elif key == 'RSS_DELAY':
+                        value = int(value)
+                        addJob(value)
+                    elif key == 'RSS_CHAT_ID':
+                        value = int(value)
                     elif key == 'DOWNLOAD_DIR':
                         if not value.endswith('/'):
                             value = f'{value}/'
@@ -370,15 +374,18 @@ async def start_env_listener(client, query, user_id, key):
                         aid = value.split()
                         for id_ in aid:
                             leech_log.append(int(id_.strip()))
-                    elif key == 'LOCAL_MIRROR_PORT':
+                    elif key == 'QB_SERVER_PORT':
                         value = int(value)
-                        await (await create_subprocess_exec("pkill", "-9", "-f", f"gunicorn web.wserver:app")).wait()
-                        await create_subprocess_shell("gunicorn web.wserver:app --bind 0.0.0.0:{value}")
+                        if config_dict['BASE_URL']:
+                            await (await create_subprocess_exec("pkill", "-9", "-f", "gunicorn")).wait()
+                            await create_subprocess_shell(f"gunicorn qbitweb.wserver:app --bind 0.0.0.0:{value} --worker-class gevent")
                     elif key == 'EXTENSION_FILTER':
                         fx = value.split()
                         GLOBAL_EXTENSION_FILTER.clear()
-                        GLOBAL_EXTENSION_FILTER.append('.aria2')
+                        GLOBAL_EXTENSION_FILTER.extend(['.aria2', '!qB'])
                         for x in fx:
+                            if x.strip().startswith('.'):
+                                x = x.lstrip('.')
                             GLOBAL_EXTENSION_FILTER.append(x.strip().lower())
                     config_dict[key] = value
                     await edit_menus(message, 'env')       
@@ -387,7 +394,7 @@ async def start_env_listener(client, query, user_id, key):
                     if key in ['SEARCH_PLUGINS', 'SEARCH_API_LINK']:
                         await initiate_search_tools()
             except KeyError:
-                return await query.answer("Value doesn't exist") 
+                await query.answer("Value doesn't exist") 
     finally:
         await question.delete()
 
@@ -398,16 +405,15 @@ async def start_aria_listener(client, query, user_id, key):
     else:
         question= await sendMessage("Send valid value for selected variable, /ignore to cancel. Timeout: 60 sec", message)
     try:
-        response = await client.listen.Message(filters.text, id= filters.user(user_id), timeout= 60)
+        response = await client.listen.Message(filters.text, id= filters.user(user_id), timeout=60)
     except TimeoutError:
-        await client.send_message(message.chat.id, text="Too late 30s gone, try again!")
+        await client.send_message(message.chat.id, text="Too late 60s gone, try again!")
         return
     else:
         if response:
             try:
                 if "/ignore" in response.text:
                     await client.listen.Cancel(filters.user(user_id))
-                    await query.answer("Cancelled question!")
                     return
                 else:
                     value= response.text.strip() 
@@ -432,7 +438,7 @@ async def start_aria_listener(client, query, user_id, key):
                     if DATABASE_URL:
                         await DbManager().update_aria2(key, value)    
             except KeyError:
-                return await query.answer("Value doesn't exist") 
+                await query.answer("Value doesn't exist") 
     finally:
         await question.delete()
 
@@ -440,16 +446,15 @@ async def start_qbit_listener(client, query, user_id, key):
     message= query.message
     question= await sendMessage("Send valid value for selected variable, /ignore to cancel. Timeout: 60 sec", message)
     try:
-        response = await client.listen.Message(filters.text, id= filters.user(user_id), timeout= 60)
+        response = await client.listen.Message(filters.text, id= filters.user(user_id), timeout=60)
     except TimeoutError:
-        await client.send_message(message.chat.id, text="Too late 30s gone, try again!")
+        await client.send_message(message.chat.id, text="Too late 60s gone, try again!")
         return
     else:
         if response:
             try:
                 if "/ignore" in response.text:
                     await client.listen.Cancel(filters.user(user_id))
-                    await query.answer("Cancelled question!")
                     return
                 else:
                     value= response.text.strip() 
@@ -467,7 +472,7 @@ async def start_qbit_listener(client, query, user_id, key):
                     if DATABASE_URL:
                         await DbManager().update_qbittorrent(key, value)    
             except KeyError:
-                return await query.answer("Value doesn't exist")
+                await query.answer("Value doesn't exist")
     finally:
         await question.delete() 
 
